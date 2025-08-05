@@ -19,10 +19,10 @@ import "./interfaces/IPriceFeed.sol";
 import "./interfaces/IController.sol";
 import "./interfaces/IRedemption.sol";
 
-/// @title  OpenEdenVaultV4
+/// @title  OpenEdenVaultV5
 /// @author OpenEden
 /// @notice This contract is the main contract for OpenEden T-Bills
-contract OpenEdenVaultV4 is
+contract OpenEdenVaultV5 is
     ERC20Upgradeable,
     OwnableUpgradeable,
     IOpenEdenVault,
@@ -132,6 +132,49 @@ contract OpenEdenVaultV4 is
         _;
     }
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @notice Initializes the contract and sets the initial state variables. This is called by the proxy and should only be called once.
+     * @dev This function is intended for setting initial values for the contract's state variables. Ensure the provided holders have KYC granted before deploying this contract.
+     * @param _underlying The underlying ERC20 token for the vault.
+     * @param _controller Reference to the associated Controller contract.
+     * @param _oplTreasury Address of the OPL treasury.
+     * @param _mgtFeeTreasury Address of the management fee treasury.
+     * @param _treasury Address of the main treasury.
+     * @param _feeManager Reference to the associated Fee Manager contract.
+     * @param _kycManager Reference to the KYC Manager contract.
+     */
+    function initialize(
+        IERC20MetadataUpgradeable _underlying,
+        IController _controller,
+        IPriceFeed _tbillUsdPriceFeed,
+        address _oplTreasury,
+        address _mgtFeeTreasury,
+        address _treasury,
+        IFeeManager _feeManager,
+        IKycManager _kycManager
+    ) external initializer {
+        __ERC20_init("OpenEden T-Bills", "TBILL");
+        __Ownable_init();
+        __UUPSUpgradeable_init();
+
+        underlying = _underlying;
+        tbillDecimalScaleFactor = 10 ** _underlying.decimals();
+
+        controller = _controller;
+        tbillUsdPriceFeed = _tbillUsdPriceFeed;
+
+        oplTreasury = _oplTreasury;
+        mgtFeeTreasury = _mgtFeeTreasury;
+        treasury = _treasury;
+        feeManager = _feeManager;
+        kycManager = _kycManager;
+    }
+
     /*//////////////////////////////////////////////////////////////
                           EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -198,6 +241,9 @@ contract OpenEdenVaultV4 is
 
         // Step 1: Charge fees and get the request amount
         (, , uint256 totalFee) = txsFee(ActionType.REDEEM, sender, assets);
+
+        (uint256 minWithdraw, ) = feeManager.getMinMaxWithdraw();
+        if (assets < minWithdraw) revert TBillLessThanMin(assets, minWithdraw);
 
         // Step 2: Perform token transfers and redemptions
         return
@@ -721,8 +767,6 @@ contract OpenEdenVaultV4 is
         if (_amount == 0) revert TBillInvalidInput(_amount);
         if (balanceOf(_from) < _amount) revert TBillInvalidInput(_amount);
 
-        // address(this) is a placeholder
-        _validateKyc(_from, address(this));
         _burn(_from, _amount);
         emit BurnFrom(_from, _amount);
     }
@@ -767,7 +811,8 @@ contract OpenEdenVaultV4 is
         if (_amount == 0) revert TBillInvalidInput(_amount);
         if (balanceOf(_oldWallet) < _amount) revert TBillInvalidInput(_amount);
 
-        _validateKyc(_oldWallet, _newWallet);
+        // address(this) is a placeholder
+        _validateKyc(address(this), _newWallet);
         _burn(_oldWallet, _amount);
         _mint(_newWallet, _amount);
         emit ReIssue(_oldWallet, _newWallet, _amount);
@@ -794,16 +839,6 @@ contract OpenEdenVaultV4 is
             _assets
         );
 
-        // collect the fee
-        if (totalFee > 0) {
-            SafeERC20Upgradeable.safeTransferFrom(
-                IERC20Upgradeable(underlying),
-                _sender,
-                oplTreasury,
-                totalFee
-            );
-        }
-
         uint256 trimmedAssets = _assets - totalFee;
         uint256 shares = _convertToShares(trimmedAssets);
 
@@ -813,6 +848,16 @@ contract OpenEdenVaultV4 is
                 shares,
                 totalSupplyCap
             );
+
+        // collect the fee
+        if (totalFee > 0) {
+            SafeERC20Upgradeable.safeTransferFrom(
+                IERC20Upgradeable(underlying),
+                _sender,
+                oplTreasury,
+                totalFee
+            );
+        }
 
         _deposit(_sender, _receiver, trimmedAssets, shares, treasury);
         emit ProcessDeposit(
@@ -957,9 +1002,9 @@ contract OpenEdenVaultV4 is
         /* _mint() or _burn() will set one of to address(0)
          *  no need to limit for these scenarios
          */
-        if (_from == address(0) || _to == address(0)) {
+        if (_from == address(0) || _to == address(0) || _from == address(this))
             return;
-        }
+
         _validateKyc(_from, _to);
     }
 

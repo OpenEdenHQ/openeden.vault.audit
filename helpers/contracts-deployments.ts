@@ -5,7 +5,7 @@ import { eContractid } from "./types";
 import {
   OpenEdenVaultV2__factory,
   OpenEdenVaultV3__factory,
-  OpenEdenVaultV4__factory,
+  OpenEdenVaultV5__factory,
   Controller__factory,
   FeeManager__factory,
   KycManager__factory,

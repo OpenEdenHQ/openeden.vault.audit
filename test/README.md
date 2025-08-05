@@ -5,7 +5,7 @@ This directory contains comprehensive test suites for the OpenEden T-Bills vault
 ## Test Files Overview
 
 ### Core Vault Tests
-- **09-vaultV4.test.ts** - Main vault functionality tests (deposits, withdrawals, fees, etc.)
+- **09-vault.test.ts** - Main vault functionality tests (deposits, withdrawals, fees, etc.)
 - **01-KycManager.test.ts** - KYC management system tests
 - **02-FeeManager.test.ts** - Fee calculation and management tests
 - **03-Controller.test.ts** - Controller contract tests
@@ -26,7 +26,7 @@ npx hardhat test
 ### Run Specific Test Files
 ```bash
 # Run main vault tests
-npx hardhat test test/09-vaultV4.test.ts
+npx hardhat test test/09-vault.test.ts
 
 # Run USYC redemption tests
 npx hardhat test test/10-usycRedemption.test.ts

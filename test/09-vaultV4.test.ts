@@ -13,7 +13,7 @@ import {
   TimelockController,
   OpenEdenVaultV2,
   OpenEdenVaultV3,
-  OpenEdenVaultV4,
+  OpenEdenVaultV5,
   FeeManager,
   KycManager,
   TBillPriceOracle,
@@ -80,14 +80,14 @@ describe("OpenEdenV4", async function () {
   let kycManagerIns: KycManager;
   let vaultV2: OpenEdenVaultV2;
   let vaultV3: OpenEdenVaultV3;
-  let vaultV4: OpenEdenVaultV4;
+  let vault: OpenEdenVaultV5;
   let aggregator: MockV3Aggregator;
   let tbillOracle: TBillPriceOracle;
   let timelock: TimelockController;
   let controller: Controller;
   let partnership: PartnerShip;
   let OpenEdenVaultV3;
-  let OpenEdenVaultV4;
+  let OpenEdenVaultV5;
   let iface;
 
   let owner: SignerWithAddress,
@@ -280,23 +280,23 @@ describe("OpenEdenV4", async function () {
     let v3 = await OpenEdenVaultV3.deploy();
     await v3.deployed();
 
-    OpenEdenVaultV4 = await ethers.getContractFactory("OpenEdenVaultV4");
-    let v4 = await OpenEdenVaultV4.deploy();
-    await v4.deployed();
+    OpenEdenVaultV5 = await ethers.getContractFactory("OpenEdenVaultV5");
+    let v5 = await OpenEdenVaultV5.deploy();
+    await v5.deployed();
 
     // !!!! important !!!!
-    await upgrades.validateUpgrade(vaultV2.address, OpenEdenVaultV4, {
+    await upgrades.validateUpgrade(vaultV2.address, OpenEdenVaultV5, {
       unsafeAllowRenames: true,
     });
     console.log("validateUpgrade done!");
 
-    await vaultV2.upgradeTo(v4.address);
-    vaultV4 = await OpenEdenVaultV4.attach(vaultV2.address);
-    await vaultV4.connect(owner).setMaintainer(maintainer.address);
+    await vaultV2.upgradeTo(v5.address);
+    vault = await OpenEdenVaultV5.attach(vaultV2.address);
+    await vault.connect(owner).setMaintainer(maintainer.address);
 
-    await vaultV4.connect(maintainer).setPartnerShip(partnership.address);
-    await vaultV4.connect(maintainer).setOperator([operator.address], [true]);
-    await vaultV4.connect(maintainer).setTotalSupplyCap(_10M);
+    await vault.connect(maintainer).setPartnerShip(partnership.address);
+    await vault.connect(maintainer).setOperator([operator.address], [true]);
+    await vault.connect(maintainer).setTotalSupplyCap(_10M);
 
     // setup USYC redemption system
     try {
@@ -325,7 +325,7 @@ describe("OpenEdenV4", async function () {
         usycTokenIns.address,
         usdcTokenIns.address,
         usycHelperIns.address,
-        vaultV4.address,
+        vault.address,
         usycTreasuryAccount.address
       );
       await usycRedemptionIns.deployed();
@@ -343,7 +343,7 @@ describe("OpenEdenV4", async function () {
       await usdcTokenIns.transfer(usycHelperIns.address, _200k);
 
       // Set the redemption contract in the vault
-      await vaultV4
+      await vault
         .connect(maintainer)
         .setRedemption(usycRedemptionIns.address);
 
@@ -352,7 +352,7 @@ describe("OpenEdenV4", async function () {
       console.log("USYC redemption system setup failed:", error);
     }
 
-    await vaultV4.setMgtFeeTreasury(mgtFeeTreasuryAccount.address);
+    await vault.setMgtFeeTreasury(mgtFeeTreasuryAccount.address);
   }
 
   beforeEach(async () => {
@@ -373,7 +373,7 @@ describe("OpenEdenV4", async function () {
       const depositAssets = _10k;
 
       // Call txsFee and validate the result
-      const [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      const [oeFee, pFee, totalFee] = await vault.txsFee(
         ActionType.DEPOSIT,
         child1.address,
         depositAssets
@@ -393,7 +393,7 @@ describe("OpenEdenV4", async function () {
       const depositAssets = _10k;
 
       // Call txsFee and validate the result
-      const [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      const [oeFee, pFee, totalFee] = await vault.txsFee(
         ActionType.DEPOSIT,
         child1.address,
         depositAssets
@@ -415,7 +415,7 @@ describe("OpenEdenV4", async function () {
       const depositAssets = _10k;
 
       // Call txsFee and validate the result
-      const [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      const [oeFee, pFee, totalFee] = await vault.txsFee(
         ActionType.DEPOSIT,
         child1.address,
         depositAssets
@@ -440,7 +440,7 @@ describe("OpenEdenV4", async function () {
       const depositAssets = _1$;
 
       // Call txsFee and validate that the totalFee is at least the minTxsFee
-      const [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      const [oeFee, pFee, totalFee] = await vault.txsFee(
         ActionType.DEPOSIT,
         child1.address,
         depositAssets
@@ -457,7 +457,7 @@ describe("OpenEdenV4", async function () {
 
     it("should return only oeFee when no PartnerShip contract is set", async function () {
       // Remove the partnership contract
-      await vaultV4
+      await vault
         .connect(maintainer)
         .setPartnerShip(ethers.constants.AddressZero);
 
@@ -466,7 +466,7 @@ describe("OpenEdenV4", async function () {
       const depositAssets = _10k;
 
       // Call txsFee and validate that only oeFee is returned
-      const [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      const [oeFee, pFee, totalFee] = await vault.txsFee(
         ActionType.DEPOSIT,
         investor1.address,
         depositAssets
@@ -485,13 +485,13 @@ describe("OpenEdenV4", async function () {
       const statuses = [true, false]; // operator1 = true, operator2 = false
 
       // Call setOperator with valid data
-      await vaultV4.connect(maintainer).setOperator(operators, statuses);
+      await vault.connect(maintainer).setOperator(operators, statuses);
 
       // Check if operator statuses were set correctly
-      const operator1Status = await vaultV4.operators(investor1.address);
+      const operator1Status = await vault.operators(investor1.address);
       expect(operator1Status).to.equal(true);
 
-      const operator2Status = await vaultV4.operators(investor2.address);
+      const operator2Status = await vault.operators(investor2.address);
       expect(operator2Status).to.equal(false);
     });
 
@@ -501,10 +501,10 @@ describe("OpenEdenV4", async function () {
       const statuses = [true, false]; // operator1 = true, operator2 = false
 
       // Expect the SetOperator event to be emitted twice, once for each operator
-      await expect(vaultV4.connect(maintainer).setOperator(operators, statuses))
-        .to.emit(vaultV4, "SetOperator")
+      await expect(vault.connect(maintainer).setOperator(operators, statuses))
+        .to.emit(vault, "SetOperator")
         .withArgs(investor1.address, true) // First operator's event
-        .and.to.emit(vaultV4, "SetOperator")
+        .and.to.emit(vault, "SetOperator")
         .withArgs(investor2.address, false); // Second operator's event
     });
 
@@ -515,8 +515,8 @@ describe("OpenEdenV4", async function () {
 
       // Try to call setOperator from non-owner account and expect revert
       await expect(
-        vaultV4.connect(investor1).setOperator(operators, statuses)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+        vault.connect(investor1).setOperator(operators, statuses)
+      ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
     });
 
     it("should revert if array lengths are mismatched", async function () {
@@ -525,7 +525,7 @@ describe("OpenEdenV4", async function () {
       const statuses = [true]; // Mismatched length
 
       // Expect revert due to array length mismatch
-      await expect(vaultV4.connect(maintainer).setOperator(operators, statuses))
+      await expect(vault.connect(maintainer).setOperator(operators, statuses))
         .to.be.reverted;
     });
   });
@@ -533,39 +533,39 @@ describe("OpenEdenV4", async function () {
   describe("updateEpoch Function", async function () {
     const twentyHours = 20 * 60 * 60; // 20 hours in seconds
     beforeEach(async function () {
-      await vaultV4.connect(maintainer).setTimeBuffer(twentyHours);
+      await vault.connect(maintainer).setTimeBuffer(twentyHours);
     });
 
     it("should revert if updateEpoch is called before 20 hours have passed", async function () {
-      await vaultV4.connect(operator).updateEpoch(false);
+      await vault.connect(operator).updateEpoch(false);
 
       // eleven hours have passed
       const newHour = twentyHours - 60 * 60 * 9;
       await time.increase(newHour); // Increase time by 19 hours 59 minutes
 
       await expect(
-        vaultV4.connect(operator).updateEpoch(false)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillUpdateTooEarly");
+        vault.connect(operator).updateEpoch(false)
+      ).to.be.revertedWithCustomError(vault, "TBillUpdateTooEarly");
 
-      await vaultV4.connect(maintainer).setTimeBuffer(newHour);
-      await vaultV4.connect(operator).updateEpoch(false);
+      await vault.connect(maintainer).setTimeBuffer(newHour);
+      await vault.connect(operator).updateEpoch(false);
     });
 
     it("should successfully updateEpoch after 20 hours have passed", async function () {
-      await vaultV4.connect(operator).updateEpoch(false);
-      const epoch1 = await vaultV4.epoch();
+      await vault.connect(operator).updateEpoch(false);
+      const epoch1 = await vault.epoch();
       expect(epoch1).to.equal(1);
 
       await time.increase(twentyHours);
-      await vaultV4.connect(operator).updateEpoch(false);
+      await vault.connect(operator).updateEpoch(false);
 
-      const epoch = await vaultV4.epoch();
+      const epoch = await vault.epoch();
       expect(epoch).to.equal(2);
 
-      const isWeekend = await vaultV4.isWeekend();
+      const isWeekend = await vault.isWeekend();
       expect(isWeekend).to.equal(false);
 
-      const lastUpdateTS = await vaultV4.lastUpdateTS();
+      const lastUpdateTS = await vault.lastUpdateTS();
       const currentTime = await time.latest();
       expect(lastUpdateTS).to.equal(currentTime);
     });
@@ -578,25 +578,25 @@ describe("OpenEdenV4", async function () {
       let bal = await usdcTokenIns.balanceOf(investor1.address);
       console.log("bal: ", bal.toString());
 
-      await vaultV4.connect(investor1).deposit(assets, investor1.address);
-      shares = await vaultV4.balanceOf(investor1.address);
+      await vault.connect(investor1).deposit(assets, investor1.address);
+      shares = await vault.balanceOf(investor1.address);
 
-      await vaultV4.connect(investor1).redeem(shares, investor1.address);
+      await vault.connect(investor1).redeem(shares, investor1.address);
     });
 
     it("should only allow maintainer to cancel", async function () {
       await expect(
-        vaultV4.connect(investor1).cancel(1)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+        vault.connect(investor1).cancel(1)
+      ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
     });
 
     it("should transfer shares back to sender on cancel", async function () {
-      const balanceBefore = await vaultV4.balanceOf(investor1.address);
+      const balanceBefore = await vault.balanceOf(investor1.address);
       expect(balanceBefore).to.equal(0);
 
-      await vaultV4.connect(maintainer).cancel(1);
+      await vault.connect(maintainer).cancel(1);
 
-      const balanceAfter = await vaultV4.balanceOf(investor1.address);
+      const balanceAfter = await vault.balanceOf(investor1.address);
       console.log("before: ", balanceBefore.toString());
       console.log("after: ", balanceAfter.toString());
       expect(balanceAfter).to.equal(shares);
@@ -607,25 +607,25 @@ describe("OpenEdenV4", async function () {
     const assets = _150k;
     let shares: any;
     beforeEach(async function () {
-      await vaultV4.connect(investor1).deposit(assets, investor1.address);
-      shares = await vaultV4.balanceOf(investor1.address);
+      await vault.connect(investor1).deposit(assets, investor1.address);
+      shares = await vault.balanceOf(investor1.address);
     });
 
     it("should call redeemIns() successfully", async function () {
-      const shares1 = 112345678;
+      const shares1 = 512345678;
       console.log("shares1:", shares1.toString());
 
       // No need to update oracle price since USYC oracle is already set to valid 1.0
       // The USDC aggregator (used for vault price validation) can remain at 0.99
       await usycOracle.updateAnswer(ethers.utils.parseUnits("1.2345678", 8));
-      await vaultV4.connect(investor1).redeemIns(shares1, investor1.address);
+      await vault.connect(investor1).redeemIns(shares1, investor1.address);
     });
 
     it("should not able to to redeemIns when no enough allowance", async function () {
       const shares1 = _100k;
 
       await expect(
-        vaultV4.connect(investor1).redeemIns(shares1, investor1.address)
+        vault.connect(investor1).redeemIns(shares1, investor1.address)
       ).to.revertedWith("ERC20: insufficient allowance");
     });
 
@@ -635,7 +635,7 @@ describe("OpenEdenV4", async function () {
         .connect(usycTreasuryAccount)
         .approve(usycRedemptionIns.address, _10M);
       await expect(
-        vaultV4.connect(investor1).redeemIns(shares1, investor1.address)
+        vault.connect(investor1).redeemIns(shares1, investor1.address)
       ).to.revertedWith("ERC20: transfer amount exceeds balance");
     });
   });
@@ -646,105 +646,105 @@ describe("OpenEdenV4", async function () {
       await time.increase(60 * 60 * 24 * 8);
 
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillPriceOutdated");
+        vault.connect(investor1).deposit(_100k, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TBillPriceOutdated");
     });
     it("deposit 100k", async function () {
-      expect(await vaultV4.firstDepositMap(investor1.address)).to.equal(false);
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
-      let [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      expect(await vault.firstDepositMap(investor1.address)).to.equal(false);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
+      let [oeFee, pFee, totalFee] = await vault.txsFee(
         DEPOSIT,
         investor1.address,
         _100k
       );
       const investor1DepositFee = totalFee;
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         _100k.sub(investor1DepositFee)
       );
 
-      expect(await vaultV4.totalAssets()).to.equal(
+      expect(await vault.totalAssets()).to.equal(
         _100k.sub(investor1DepositFee)
       );
-      expect(await vaultV4.firstDepositMap(investor1.address)).to.equal(true);
+      expect(await vault.firstDepositMap(investor1.address)).to.equal(true);
 
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      [oeFee, pFee, totalFee] = await vault.txsFee(
         DEPOSIT,
         investor2.address,
         _100k
       );
-      expect(await vaultV4.balanceOf(investor2.address)).to.equal(
+      expect(await vault.balanceOf(investor2.address)).to.equal(
         _100k.sub(totalFee)
       );
 
-      [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      [oeFee, pFee, totalFee] = await vault.txsFee(
         DEPOSIT,
         child1.address,
         _100k
       );
-      await vaultV4.connect(child1).deposit(_100k, child1.address);
-      expect(await vaultV4.balanceOf(child1.address)).to.equal(
+      await vault.connect(child1).deposit(_100k, child1.address);
+      expect(await vault.balanceOf(child1.address)).to.equal(
         _100k.sub(totalFee)
       );
       expect(totalFee).to.equal(investor1DepositFee.mul(2));
 
-      await vaultV4.connect(child1).redeem(_50k, child1.address);
+      await vault.connect(child1).redeem(_50k, child1.address);
     });
 
     it("should have some assets onchain", async function () {
-      await usdcTokenIns.transfer(vaultV4.address, _100k);
-      expect(await vaultV4.onchainAssets()).to.greaterThan(BigNumber.from("0"));
+      await usdcTokenIns.transfer(vault.address, _100k);
+      expect(await vault.onchainAssets()).to.greaterThan(BigNumber.from("0"));
     });
 
     it("should fail deposit when sender is a non-kyc user", async function () {
       await expect(
-        vaultV4.connect(non_kyc).deposit(_100k, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(non_kyc).deposit(_100k, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("abnormal withdraw", async function () {
-      await vaultV4.previewDeposit(_100k);
-      await vaultV4.previewRedeem(_100k);
-      vaultV4.connect(investor1).deposit(_100k.mul(5), investor1.address);
+      await vault.previewDeposit(_100k);
+      await vault.previewRedeem(_100k);
+      vault.connect(investor1).deposit(_100k.mul(5), investor1.address);
       await expect(
-        vaultV4.connect(investor1).redeem(_50$, investor1.address)
-      ).to.revertedWithCustomError(vaultV4, "TBillLessThanMin");
+        vault.connect(investor1).redeem(_50$, investor1.address)
+      ).to.revertedWithCustomError(vault, "TBillLessThanMin");
     });
 
     it("should fail deposit when receiver is a non-kyc user", async function () {
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, non_kyc.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, non_kyc.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("should fail deposit when receiver is a banned kyc user", async function () {
       await kycManagerIns.bannedInBulk([investor2.address]);
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("redeem 10k, redeem 100k", async function () {
       // deposit
-      await vaultV4.connect(investor1).deposit(_300k, investor1.address);
-      let tbillBeforeRedeem = await vaultV4.balanceOf(investor1.address);
+      await vault.connect(investor1).deposit(_300k, investor1.address);
+      let tbillBeforeRedeem = await vault.balanceOf(investor1.address);
       let usdcBeforeRedeem = await usdcTokenIns.balanceOf(investor1.address);
       console.log("tbillBeforeRedeem", tbillBeforeRedeem.toString());
       console.log("usdcBeforeRedeem", usdcBeforeRedeem.toString());
 
       // redeem 10k
-      await expect(vaultV4.connect(investor1).redeem(_10k, investor1.address))
-        .emit(vaultV4, "AddToWithdrawalQueue")
+      await expect(vault.connect(investor1).redeem(_10k, investor1.address))
+        .emit(vault, "AddToWithdrawalQueue")
         .withArgs(investor1.address, investor1.address, _10k, anyValue);
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeRedeem.sub(_10k)
       );
 
       // redeem 100k
-      tbillBeforeRedeem = await vaultV4.balanceOf(investor1.address);
+      tbillBeforeRedeem = await vault.balanceOf(investor1.address);
       usdcBeforeRedeem = await usdcTokenIns.balanceOf(investor1.address);
-      await vaultV4.connect(investor1).redeem(_100k, investor1.address);
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      await vault.connect(investor1).redeem(_100k, investor1.address);
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeRedeem.sub(_100k)
       );
       expect(await usdcTokenIns.balanceOf(investor1.address)).to.equal(
@@ -755,78 +755,78 @@ describe("OpenEdenV4", async function () {
     describe("WithdrawalQueue", () => {
       it("processWithdrawQueue ", async function () {
         expect(
-          await vaultV4.connect(investor1).deposit(_300k, investor1.address)
-        ).to.emit(vaultV4, "ProcessDeposit");
+          await vault.connect(investor1).deposit(_300k, investor1.address)
+        ).to.emit(vault, "ProcessDeposit");
         expect(
-          await vaultV4.connect(investor2).deposit(_300k, investor2.address)
-        ).emit(vaultV4, "ProcessDeposit");
+          await vault.connect(investor2).deposit(_300k, investor2.address)
+        ).emit(vault, "ProcessDeposit");
 
-        await usdcTokenIns.transfer(vaultV4.address, _300k);
-        await usdcTokenIns.transfer(vaultV4.address, _300k);
+        await usdcTokenIns.transfer(vault.address, _300k);
+        await usdcTokenIns.transfer(vault.address, _300k);
 
-        let usdcBalance = await usdcTokenIns.balanceOf(vaultV4.address);
-        console.log("vaultV4 usdc balance: ", usdcBalance.toString());
+        let usdcBalance = await usdcTokenIns.balanceOf(vault.address);
+        console.log("vault usdc balance: ", usdcBalance.toString());
 
-        await vaultV4.connect(investor1).redeem(_10k, investor1.address);
-        await vaultV4.connect(investor1).redeem(_10k, investor2.address); //investor1 -> investor2
-        await vaultV4.connect(investor2).redeem(_100k, investor2.address);
-        await vaultV4.connect(investor2).redeem(_150k, investor2.address);
+        await vault.connect(investor1).redeem(_10k, investor1.address);
+        await vault.connect(investor1).redeem(_10k, investor2.address); //investor1 -> investor2
+        await vault.connect(investor2).redeem(_100k, investor2.address);
+        await vault.connect(investor2).redeem(_150k, investor2.address);
 
-        let length = await vaultV4.getWithdrawalQueueLength();
+        let length = await vault.getWithdrawalQueueLength();
         expect(length).to.equal(4);
 
         console.log("----- process withdrawal queue 1 -----");
-        await vaultV4.connect(operator).processWithdrawalQueue(1);
-        length = await vaultV4.getWithdrawalQueueLength();
+        await vault.connect(operator).processWithdrawalQueue(1);
+        length = await vault.getWithdrawalQueueLength();
         expect(length).to.equal(3);
-        // await displayQueue(vaultV4);
+        // await displayQueue(vault);
 
         console.log("----- process withdrawal queue 0 (all length) -----");
-        await vaultV4.connect(operator).processWithdrawalQueue(0);
-        length = await vaultV4.getWithdrawalQueueLength();
+        await vault.connect(operator).processWithdrawalQueue(0);
+        length = await vault.getWithdrawalQueueLength();
 
         // insufficient balance, so the last redeem will be failed
         expect(length).to.equal(0);
 
         console.log("test cancellation");
-        await vaultV4.connect(investor1).redeem(_10k, investor1.address);
-        await vaultV4.connect(investor2).redeem(_10k, investor2.address);
+        await vault.connect(investor1).redeem(_10k, investor1.address);
+        await vault.connect(investor2).redeem(_10k, investor2.address);
         await expect(
-          vaultV4.connect(maintainer).cancel(10)
-        ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidInput");
+          vault.connect(maintainer).cancel(10)
+        ).to.be.revertedWithCustomError(vault, "TBillInvalidInput");
         await expect(
-          vaultV4.connect(investor2).cancel(1)
-        ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+          vault.connect(investor2).cancel(1)
+        ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
 
         // await kycManagerIns.bannedInBulk([investor1.address]);
         // await kycManagerIns.bannedInBulk([investor2.address]);
-        await vaultV4.connect(maintainer).cancel(2); // have tested 0, 1
+        await vault.connect(maintainer).cancel(2); // have tested 0, 1
       });
 
       it("should gt 0", async function () {
-        await vaultV4.getWithdrawalQueueInfo(1);
+        await vault.getWithdrawalQueueInfo(1);
         await expect(
-          vaultV4.connect(operator).processWithdrawalQueue(1)
-        ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidInput");
-        vaultV4.connect(investor1).deposit(_100k, investor1.address);
-        vaultV4.connect(investor1).redeem(_10k, investor1.address);
-        vaultV4.connect(investor1).redeem(_10k, investor1.address);
-        vaultV4.connect(investor1).redeem(_10k, investor1.address);
+          vault.connect(operator).processWithdrawalQueue(1)
+        ).to.be.revertedWithCustomError(vault, "TBillInvalidInput");
+        vault.connect(investor1).deposit(_100k, investor1.address);
+        vault.connect(investor1).redeem(_10k, investor1.address);
+        vault.connect(investor1).redeem(_10k, investor1.address);
+        vault.connect(investor1).redeem(_10k, investor1.address);
 
-        await vaultV4.getWithdrawalQueueInfo(0);
-        await vaultV4.getWithdrawalQueueInfo(1);
-        await vaultV4.getWithdrawalQueueInfo(5);
+        await vault.getWithdrawalQueueInfo(0);
+        await vault.getWithdrawalQueueInfo(1);
+        await vault.getWithdrawalQueueInfo(5);
 
-        await vaultV4.getWithdrawalUserInfo(investor1.address);
-        await vaultV4.getWithdrawalUserInfo(investor1.address);
+        await vault.getWithdrawalUserInfo(investor1.address);
+        await vault.getWithdrawalUserInfo(investor1.address);
 
         await expect(
-          vaultV4.connect(investor1).processWithdrawalQueue(1)
-        ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+          vault.connect(investor1).processWithdrawalQueue(1)
+        ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
         await expect(
-          vaultV4.connect(operator).processWithdrawalQueue(5)
-        ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidInput");
-        await vaultV4.connect(operator).processWithdrawalQueue(1);
+          vault.connect(operator).processWithdrawalQueue(5)
+        ).to.be.revertedWithCustomError(vault, "TBillInvalidInput");
+        await vault.connect(operator).processWithdrawalQueue(1);
 
         tbillOracle = await deployContract<TBillPriceOracle>(
           "TBillPriceOracle",
@@ -841,143 +841,143 @@ describe("OpenEdenV4", async function () {
     });
 
     it("should fail redeem when sender is a non-kyc user", async function () {
-      vaultV4.connect(investor1).deposit(_100k, investor1.address);
+      vault.connect(investor1).deposit(_100k, investor1.address);
       await expect(
-        vaultV4.connect(non_kyc).redeem(10000, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(non_kyc).redeem(10000, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("should fail redeem when receiver is a non-kyc user", async function () {
-      vaultV4.connect(investor1).deposit(_100k, investor1.address);
+      vault.connect(investor1).deposit(_100k, investor1.address);
       await expect(
-        vaultV4.connect(investor1).redeem(10000, non_kyc.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(10000, non_kyc.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("should fail redeem when receiver is a banned kyc user", async function () {
-      vaultV4.connect(investor1).deposit(_100k, investor1.address);
+      vault.connect(investor1).deposit(_100k, investor1.address);
       await kycManagerIns.bannedInBulk([investor2.address]);
       await expect(
-        vaultV4.connect(investor1).redeem(10000, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(10000, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("claim service fee", async function () {
       await feeManager.setManagementFeeRate(managementFeeRate);
       // deposit 1M ok
-      await vaultV4.connect(investor1).deposit(_1M, investor1.address);
+      await vault.connect(investor1).deposit(_1M, investor1.address);
       // set weekend
-      await vaultV4.connect(operator).updateEpoch(true);
-      await vaultV4.connect(investor1).redeem(_100k, investor1.address);
-      //await vaultV4.connect(operator).claimServiceFee(0);
-      await expect(vaultV4.claimServiceFee(_1$)).to.revertedWithCustomError(
-        vaultV4,
+      await vault.connect(operator).updateEpoch(true);
+      await vault.connect(investor1).redeem(_100k, investor1.address);
+      //await vault.connect(operator).claimServiceFee(0);
+      await expect(vault.claimServiceFee(_1$)).to.revertedWithCustomError(
+        vault,
         "TBillNoPermission"
       );
       await expect(
-        vaultV4.connect(operator).claimServiceFee(_1$)
+        vault.connect(operator).claimServiceFee(_1$)
       ).to.revertedWith("ERC20: transfer amount exceeds balance");
-      await usdcTokenIns.connect(investor2).transfer(vaultV4.address, _50$);
-      await vaultV4.connect(operator).claimServiceFee(_1$);
+      await usdcTokenIns.connect(investor2).transfer(vault.address, _50$);
+      await vault.connect(operator).claimServiceFee(_1$);
     });
 
     it("sender: non-kyc, banned ", async function () {
       // deposit/redeem and transfer normal
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
-      await vaultV4.connect(investor1).redeem(_10k, investor1.address);
-      await vaultV4.connect(investor1).transfer(investor3.address, _10k);
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
+      await vault.connect(investor1).redeem(_10k, investor1.address);
+      await vault.connect(investor1).transfer(investor3.address, _10k);
 
       // sender banned, can't deposit/redeem and transfer
       await kycManagerIns.bannedInBulk([investor1.address]);
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).redeem(_10k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(_10k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).transfer(investor3.address, _10k)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).transfer(investor3.address, _10k)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
 
       // sender unbanned, can deposit/redeem and transfer
       await kycManagerIns.unBannedInBulk([investor1.address]);
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      await vaultV4.connect(investor1).redeem(_10k, investor2.address);
-      await vaultV4.connect(investor1).transfer(investor3.address, _10k);
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      await vault.connect(investor1).redeem(_10k, investor2.address);
+      await vault.connect(investor1).transfer(investor3.address, _10k);
 
       // sender revoke kyc, can't deposit/redeem and transfer
       await kycManagerIns.revokeKycInBulk([investor1.address]);
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).redeem(_10k, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(_10k, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).transfer(investor3.address, _10k)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).transfer(investor3.address, _10k)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("receiver: non-kyc, banned ", async function () {
       // deposit/redeem and transfer normal
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
-      await vaultV4.connect(investor1).redeem(_10k, investor2.address);
-      await vaultV4.connect(investor1).transfer(investor2.address, _10k);
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
+      await vault.connect(investor1).redeem(_10k, investor2.address);
+      await vault.connect(investor1).transfer(investor2.address, _10k);
 
       // banned receiver, can't deposit/redeem and transfer
       await kycManagerIns.bannedInBulk([investor2.address]);
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).redeem(_10k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(_10k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).transfer(investor2.address, _10k)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).transfer(investor2.address, _10k)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
 
       // unbanned receiver, can deposit/redeem and transfer
       await kycManagerIns.unBannedInBulk([investor2.address]);
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      await vaultV4.connect(investor1).redeem(_10k, investor2.address);
-      await vaultV4.connect(investor1).transfer(investor2.address, _10k);
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      await vault.connect(investor1).redeem(_10k, investor2.address);
+      await vault.connect(investor1).transfer(investor2.address, _10k);
 
       // revoke kyc receiver, can't deposit/redeem and transfer
       await kycManagerIns.revokeKycInBulk([investor2.address]);
       await expect(
-        vaultV4.connect(investor1).deposit(_100k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).deposit(_100k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).redeem(_10k, investor2.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(_10k, investor2.address)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).transfer(investor2.address, _10k)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).transfer(investor2.address, _10k)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidateKyc");
     });
 
     it("receiver is zero address", async function () {
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
       // deposit fail
       await expect(
         kycManagerIns.grantKycInBulk([ZERO_ADDRESS], [2])
       ).to.revertedWith("invalid address");
       // redeem fail
       await expect(
-        vaultV4.connect(investor1).redeem(_10k, ZERO_ADDRESS)
-      ).to.revertedWithCustomError(vaultV4, "TBillInvalidateKyc");
+        vault.connect(investor1).redeem(_10k, ZERO_ADDRESS)
+      ).to.revertedWithCustomError(vault, "TBillInvalidateKyc");
       await expect(
-        vaultV4.connect(investor1).transfer(ZERO_ADDRESS, _10k)
+        vault.connect(investor1).transfer(ZERO_ADDRESS, _10k)
       ).to.revertedWith("ERC20: transfer to the zero address");
     });
   });
 
   describe("deposit/withdraw tbill/usdc 1:1", () => {
     it("deposit 100k", async function () {
-      expect(await vaultV4.firstDepositMap(investor1.address)).to.equal(false);
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
-      let [oeFee, pFee, totalFee] = await vaultV4.txsFee(
+      expect(await vault.firstDepositMap(investor1.address)).to.equal(false);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
+      let [oeFee, pFee, totalFee] = await vault.txsFee(
         DEPOSIT,
         investor1.address,
         _100k
@@ -986,39 +986,39 @@ describe("OpenEdenV4", async function () {
       let fee = totalFee;
       console.log("txsFee", oeFee.toString(), pFee.toString(), fee.toString());
 
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         _100k.sub(fee)
       );
-      expect(await vaultV4.totalAssets()).to.equal(_100k.sub(fee));
-      expect(await vaultV4.firstDepositMap(investor1.address)).to.equal(true);
+      expect(await vault.totalAssets()).to.equal(_100k.sub(fee));
+      expect(await vault.firstDepositMap(investor1.address)).to.equal(true);
 
-      await vaultV4.connect(investor1).deposit(_100k, investor2.address);
-      expect(await vaultV4.balanceOf(investor2.address)).to.equal(
+      await vault.connect(investor1).deposit(_100k, investor2.address);
+      expect(await vault.balanceOf(investor2.address)).to.equal(
         _100k.sub(fee)
       );
     });
 
     it("redeem 10k, redeem 100k", async function () {
       // deposit
-      await vaultV4.connect(investor1).deposit(_300k, investor1.address);
-      let tbillBeforeRedeem = await vaultV4.balanceOf(investor1.address);
+      await vault.connect(investor1).deposit(_300k, investor1.address);
+      let tbillBeforeRedeem = await vault.balanceOf(investor1.address);
       let usdcBeforeRedeem = await usdcTokenIns.balanceOf(investor1.address);
       console.log("tbillBeforeRedeem", tbillBeforeRedeem.toString());
       console.log("usdcBeforeRedeem", usdcBeforeRedeem.toString());
 
       // redeem 10k
-      await expect(vaultV4.connect(investor1).redeem(_10k, investor1.address))
-        .emit(vaultV4, "AddToWithdrawalQueue")
+      await expect(vault.connect(investor1).redeem(_10k, investor1.address))
+        .emit(vault, "AddToWithdrawalQueue")
         .withArgs(investor1.address, investor1.address, _10k, anyValue);
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeRedeem.sub(_10k)
       );
 
       // redeem 100k
-      tbillBeforeRedeem = await vaultV4.balanceOf(investor1.address);
+      tbillBeforeRedeem = await vault.balanceOf(investor1.address);
       usdcBeforeRedeem = await usdcTokenIns.balanceOf(investor1.address);
-      await vaultV4.connect(investor1).redeem(_100k, investor1.address);
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      await vault.connect(investor1).redeem(_100k, investor1.address);
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeRedeem.sub(_100k)
       );
       expect(await usdcTokenIns.balanceOf(investor1.address)).to.equal(
@@ -1028,141 +1028,141 @@ describe("OpenEdenV4", async function () {
 
     it("deposit 150k, deposit 10k", async function () {
       // deposit 150k
-      let tbillBeforeDeposit = await vaultV4.balanceOf(investor1.address);
+      let tbillBeforeDeposit = await vault.balanceOf(investor1.address);
       let usdcBeforeDeposit = await usdcTokenIns.balanceOf(investor1.address);
-      await vaultV4.connect(investor1).deposit(_150k, investor1.address);
+      await vault.connect(investor1).deposit(_150k, investor1.address);
       expect(await usdcTokenIns.balanceOf(investor1.address)).to.equal(
         usdcBeforeDeposit.sub(_150k)
       );
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeDeposit.add(_150k).sub(_75$)
       );
 
       // deposit 10k
-      tbillBeforeDeposit = await vaultV4.balanceOf(investor1.address);
+      tbillBeforeDeposit = await vault.balanceOf(investor1.address);
       usdcBeforeDeposit = await usdcTokenIns.balanceOf(investor1.address);
-      await vaultV4.connect(investor1).deposit(_10k, investor1.address);
+      await vault.connect(investor1).deposit(_10k, investor1.address);
       expect(await usdcTokenIns.balanceOf(investor1.address)).to.equal(
         usdcBeforeDeposit.sub(_10k)
       );
-      expect(await vaultV4.balanceOf(investor1.address)).to.equal(
+      expect(await vault.balanceOf(investor1.address)).to.equal(
         tbillBeforeDeposit.add(_10k).sub(_25$)
       );
 
-      await vaultV4.connect(investor1).deposit(_100k, investor1.address);
-      await vaultV4.connect(investor1).redeem(_100k, investor1.address);
+      await vault.connect(investor1).deposit(_100k, investor1.address);
+      await vault.connect(investor1).redeem(_100k, investor1.address);
     });
   });
 
   describe("TbillV4 setTotalSupplyCap", () => {
     it("should allow maintainer to set a valid total supply cap", async function () {
       const newSupplyCap = _1M; // 1M cap
-      await expect(vaultV4.connect(maintainer).setTotalSupplyCap(newSupplyCap))
-        .to.emit(vaultV4, "TotalSupplyCap")
+      await expect(vault.connect(maintainer).setTotalSupplyCap(newSupplyCap))
+        .to.emit(vault, "TotalSupplyCap")
         .withArgs(newSupplyCap);
 
-      const totalSupplyCap = await vaultV4.totalSupplyCap();
+      const totalSupplyCap = await vault.totalSupplyCap();
       expect(totalSupplyCap).to.equal(newSupplyCap);
     });
 
     it("should revert if supply cap is less than current total supply", async function () {
-      await vaultV4.connect(maintainer).setTotalSupplyCap(_1M);
-      await vaultV4.connect(investor1).deposit(_300k, investor1.address);
+      await vault.connect(maintainer).setTotalSupplyCap(_1M);
+      await vault.connect(investor1).deposit(_300k, investor1.address);
 
-      const currentTotalSupply = await vaultV4.totalSupply();
+      const currentTotalSupply = await vault.totalSupply();
       const invalidSupplyCap = currentTotalSupply.sub(_10k); // Less than current total supply
 
       await expect(
-        vaultV4.connect(maintainer).setTotalSupplyCap(invalidSupplyCap)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillInvalidInput");
+        vault.connect(maintainer).setTotalSupplyCap(invalidSupplyCap)
+      ).to.be.revertedWithCustomError(vault, "TBillInvalidInput");
     });
 
     it("should revert if called by a non-maintainer", async function () {
       const newSupplyCap = _1M; // 1M cap
 
       await expect(
-        vaultV4.connect(investor1).setTotalSupplyCap(newSupplyCap)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+        vault.connect(investor1).setTotalSupplyCap(newSupplyCap)
+      ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
     });
 
     it("should emit TotalSupplyCap event with the correct value", async function () {
       const newSupplyCap = _1M; // 1M cap
 
-      await expect(vaultV4.connect(maintainer).setTotalSupplyCap(newSupplyCap))
-        .to.emit(vaultV4, "TotalSupplyCap")
+      await expect(vault.connect(maintainer).setTotalSupplyCap(newSupplyCap))
+        .to.emit(vault, "TotalSupplyCap")
         .withArgs(newSupplyCap);
     });
 
     it("should revert if the new mint surpasses the cap", async function () {
       const newSupplyCap = _1M; // 1M cap
-      await vaultV4.connect(maintainer).setTotalSupplyCap(newSupplyCap);
+      await vault.connect(maintainer).setTotalSupplyCap(newSupplyCap);
 
-      await vaultV4.connect(investor1).deposit(_300k, investor1.address);
+      await vault.connect(investor1).deposit(_300k, investor1.address);
 
-      const currentTotalSupply = await vaultV4.totalSupply();
+      const currentTotalSupply = await vault.totalSupply();
       const invalidMintAmount = newSupplyCap.sub(currentTotalSupply).add(_100k); // Exceeds cap
 
       await expect(
-        vaultV4.connect(investor1).deposit(invalidMintAmount, investor1.address)
-      ).to.be.revertedWithCustomError(vaultV4, "TotalSupplyCapExceeded");
+        vault.connect(investor1).deposit(invalidMintAmount, investor1.address)
+      ).to.be.revertedWithCustomError(vault, "TotalSupplyCapExceeded");
     });
   });
 
   describe("offRamp and offRmapQ", async () => {
     it("should success to offRamp usdc", async function () {
-      await usdcTokenIns.transfer(vaultV4.address, _100k);
-      await vaultV4.connect(operator).offRamp(_1$);
+      await usdcTokenIns.transfer(vault.address, _100k);
+      await vault.connect(operator).offRamp(_1$);
     });
 
     it("should success to offRampQ usdc", async function () {
-      await usdcTokenIns.transfer(vaultV4.address, _100k);
-      await vaultV4.connect(operator).offRampQ(usdcTokenIns.address, _1$);
+      await usdcTokenIns.transfer(vault.address, _100k);
+      await vault.connect(operator).offRampQ(usdcTokenIns.address, _1$);
     });
 
     it("should fail to offRampQ tbill", async function () {
       await expect(
-        vaultV4.connect(operator).offRampQ(vaultV4.address, _1$)
-      ).to.revertedWithCustomError(vaultV4, "TBillInvalidInput");
+        vault.connect(operator).offRampQ(vault.address, _1$)
+      ).to.revertedWithCustomError(vault, "TBillInvalidInput");
     });
 
     it("should fail to offRamp tbill by non operator", async function () {
       await expect(
-        vaultV4.connect(investor1).offRamp(_1$)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+        vault.connect(investor1).offRamp(_1$)
+      ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
 
       await expect(
-        vaultV4.connect(investor1).offRampQ(usdcTokenIns.address, _1$)
-      ).to.be.revertedWithCustomError(vaultV4, "TBillNoPermission");
+        vault.connect(investor1).offRampQ(usdcTokenIns.address, _1$)
+      ).to.be.revertedWithCustomError(vault, "TBillNoPermission");
     });
   });
 
   describe("setter addresses", async function () {
     await expect(
-      vaultV4.connect(owner).setOplTreasury(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setOplTreasury(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setFeeManager(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setFeeManager(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setKycManager(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setKycManager(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setTBillPriceFeed(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setTBillPriceFeed(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setController(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setController(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setTreasury(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setTreasury(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(owner).setQTreasury(ZERO_ADDRESS)
-    ).to.revertedWithCustomError(vaultV4, "TBillZeroAddress");
+      vault.connect(owner).setQTreasury(ZERO_ADDRESS)
+    ).to.revertedWithCustomError(vault, "TBillZeroAddress");
     await expect(
-      vaultV4.connect(operator).setMaintainer(ZERO_ADDRESS)
+      vault.connect(operator).setMaintainer(ZERO_ADDRESS)
     ).to.revertedWith("Ownable: caller is not the owner");
     await expect(
-      vaultV4.connect(operator).setOperator([ZERO_ADDRESS], [true])
-    ).to.revertedWithCustomError(vaultV4, "TBillNoPermission");
+      vault.connect(operator).setOperator([ZERO_ADDRESS], [true])
+    ).to.revertedWithCustomError(vault, "TBillNoPermission");
   });
 });
