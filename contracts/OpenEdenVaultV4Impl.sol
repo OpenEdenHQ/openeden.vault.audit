@@ -17,7 +17,7 @@ import "./interfaces/ITypes.sol";
 import "./interfaces/IKycManager.sol";
 import "./interfaces/IPriceFeed.sol";
 import "./interfaces/IController.sol";
-import "./interfaces/IRedemption.sol";
+import "./interfaces/IBuidlRedemption.sol";
 
 /// @title  OpenEdenVaultV4
 /// @author OpenEden
@@ -37,11 +37,11 @@ contract OpenEdenVaultV4 is
     // indicates the fixed usdc price, 1 usdc = 1e8
     uint256 private constant ONE = 1e8;
 
-    // the supply cap of the vault
-    uint256 public totalSupplyCap;
+    // chainlink usdc price feed depg threshold, 100 stands for 1%
+    uint256 private reserve1; // maxDepeg;
 
     // chainlink usdc price feed max time delay, 24 hours
-    uint256 private reserve1; //maxTimeDelay;
+    uint256 private reserve2; //maxTimeDelay;
 
     // tbill decimal scale factor,
     uint256 private tbillDecimalScaleFactor;
@@ -59,9 +59,9 @@ contract OpenEdenVaultV4 is
     IPriceFeed public tbillUsdPriceFeed;
 
     // the wallet address to hold BUIDL, will fetch BUIDL from it to Vault
-    address public reserve2; // reserve
+    address public buidlTreasury;
 
-    // address to receive tx fee
+    // address to receive service fee
     address public oplTreasury;
 
     // address to receive underlying token
@@ -98,7 +98,7 @@ contract OpenEdenVaultV4 is
     mapping(address => bool) public firstDepositMap;
 
     // deposit amount map, will be used to calculate the deposit limit
-    mapping(uint256 => uint256) private reserve3; // depositAmountMap
+    mapping(uint256 => uint256) private reserve5; // depositAmountMap
 
     // withdraw amount map, will be used to calculate the withdraw limit
     mapping(uint256 => uint256) private reserve4; //withdrawAmountMap;
@@ -112,14 +112,11 @@ contract OpenEdenVaultV4 is
     // maintain the operator status
     mapping(address => bool) public operators;
 
-    // for instant redeem - pluggable redemption contract
-    IRedemption public redemptionContract;
+    // for instant redeem
+    IBuidlRedemption public buidlRedemption;
 
-    // redemption token (e.g., USYC, BUIDL, etc.) - configurable
-    IERC20Upgradeable public reserve5; // previous buidl
-
-    // address to receive management fee
-    address public mgtFeeTreasury;
+    // will guarantee 1:1 exchange rate between usdc and buidl, also 6 decimals
+    IERC20Upgradeable public buidl;
 
     // only operator can call this function
     modifier onlyOperator() {
@@ -140,7 +137,7 @@ contract OpenEdenVaultV4 is
      * @notice deposit underlying to this contract and mint shares to the receiver
      * @dev will charge fees before mint, and the underlying will be transfered from the sender to Treasury
      * @param _assets a parameter just like in doxygen (must be followed by parameter name)
-     * @param _receiver Documents the return variables of a contract's function state variable
+     * @param _receiver Documents the return variables of a contract’s function state variable
      */
     function deposit(uint256 _assets, address _receiver) external {
         controller.requireNotPausedDeposit();
@@ -181,7 +178,7 @@ contract OpenEdenVaultV4 is
     }
 
     /**
-     * @notice redeem shares to underlying instantly using the configured redemption system
+     * @notice redeem shares to underlying instantly by using BUIDL
      * @dev the withdraw request will be processed instantly, and the underlying will be transfered to the receiver
      * @param _shares the amount of shares to redeem
      * @param _receiver the address to receive the underlying
@@ -380,19 +377,19 @@ contract OpenEdenVaultV4 is
      * @param _amt Amount of service fees to be claimed.
      */
     function claimServiceFee(uint256 _amt) external onlyOperator {
-        if (mgtFeeTreasury == address(0)) revert TBillZeroAddress();
+        if (oplTreasury == address(0)) revert TBillZeroAddress();
         unClaimedFee -= _amt;
 
         SafeERC20Upgradeable.safeTransfer(
             IERC20Upgradeable(underlying),
-            mgtFeeTreasury,
+            oplTreasury,
             _amt
         );
-        emit ClaimServiceFee(mgtFeeTreasury, _amt);
+        emit ClaimServiceFee(oplTreasury, _amt);
     }
 
     /**
-     * @notice Update the address that receives the tx fee.
+     * @notice Update the address that receives the service fee.
      * @dev Can only be called by the contract owner.
      * @param _opl Address of the new treasury.
      */
@@ -400,17 +397,6 @@ contract OpenEdenVaultV4 is
         if (_opl == address(0)) revert TBillZeroAddress();
         oplTreasury = _opl;
         emit SetOplTreasury(_opl);
-    }
-
-    /**
-     * @notice Update the address that receives the service fee.
-     * @dev Can only be called by the contract owner.
-     * @param _treasury Address of the new treasury.
-     */
-    function setMgtFeeTreasury(address _treasury) external onlyOwner {
-        if (_treasury == address(0)) revert TBillZeroAddress();
-        mgtFeeTreasury = _treasury;
-        emit SetMgtFeeTreasury(_treasury);
     }
 
     /**
@@ -678,6 +664,31 @@ contract OpenEdenVaultV4 is
     }
 
     /**
+     * @notice Check the available liquidity for instant redeem.
+     * @return liquidity The available liquidity in USDC.
+     * @return tAllowance The BUIDL allowance for the vault.
+     * @return tBalance The BUIDL balance in the Treasury.
+     */
+    function checkLiquidity()
+        public
+        view
+        returns (
+            uint256 liquidity,
+            uint256 tAllowance,
+            uint256 tBalance,
+            uint256 minimum
+        )
+    {
+        address settlement = IBuidlRedemption(buidlRedemption).settlement();
+        liquidity = IBuidlSettlement(settlement).availableLiquidity();
+
+        tAllowance = buidl.allowance(buidlTreasury, address(this));
+        tBalance = buidl.balanceOf(buidlTreasury);
+
+        minimum = liquidity.min(tAllowance.min(tBalance));
+    }
+
+    /**
      * @notice Set the first deposit flag for the given investor.
      * @param _investor Address of the investor.
      * @param _flag Flag to set.
@@ -690,87 +701,26 @@ contract OpenEdenVaultV4 is
     }
 
     /**
-     * @notice Set the redemption contract and token addresses.
-     * @param _redemptionContract Address of the redemption contract.
+     * @notice Set the BUIDL and BUIDL Redemption contract addresses.
+     * @param _buidl Address of the BUIDL token.
+     * @param _buidlRedemption Address of the BUIDL Redemption contract.
      */
-    function setRedemption(
-        address _redemptionContract
+    function setBuidl(
+        address _buidl,
+        address _buidlRedemption
     ) external onlyMaintainer {
-        redemptionContract = IRedemption(_redemptionContract);
-        emit SetRedemption(_redemptionContract);
+        buidl = IERC20Upgradeable(_buidl);
+        buidlRedemption = IBuidlRedemption(_buidlRedemption);
+        emit SetBuidl(_buidl, _buidlRedemption);
     }
 
     /**
-     * @notice Set the total supply cap.
+     * @notice Set the BUIDL Treasury address
      */
-    function setTotalSupplyCap(uint256 _supplyCap) external onlyMaintainer {
-        if (_supplyCap < totalSupply() || _supplyCap > type(uint256).max)
-            revert TBillInvalidInput(_supplyCap);
-        totalSupplyCap = _supplyCap;
-        emit TotalSupplyCap(totalSupplyCap);
-    }
-
-    /**
-     * @notice Burn tokens from a specific wallet. Only maintainer can call this function.
-     * @dev This function allows the maintainer to burn tokens from any wallet without requiring approval.
-     * @param _from The address to burn tokens from.
-     * @param _amount The amount of tokens to burn.
-     */
-    function burnFrom(address _from, uint256 _amount) external onlyMaintainer {
-        if (_from == address(0)) revert TBillZeroAddress();
-        if (_amount == 0) revert TBillInvalidInput(_amount);
-        if (balanceOf(_from) < _amount) revert TBillInvalidInput(_amount);
-
-        // address(this) is a placeholder
-        _validateKyc(_from, address(this));
-        _burn(_from, _amount);
-        emit BurnFrom(_from, _amount);
-    }
-
-    /**
-     * @notice Mint tokens to a specific wallet. Only maintainer can call this function.
-     * @dev This function allows the maintainer to mint tokens to any wallet.
-     * @param _to The address to mint tokens to.
-     * @param _amount The amount of tokens to mint.
-     */
-    function mintTo(address _to, uint256 _amount) external onlyMaintainer {
-        if (_to == address(0)) revert TBillZeroAddress();
-        if (_amount == 0) revert TBillInvalidInput(_amount);
-        // Check if minting would exceed the total supply cap
-        if (totalSupply() + _amount > totalSupplyCap)
-            revert TotalSupplyCapExceeded(
-                totalSupply(),
-                _amount,
-                totalSupplyCap
-            );
-
-        // address(this) is a placeholder
-        _validateKyc(address(this), _to);
-        _mint(_to, _amount);
-        emit MintTo(_to, _amount);
-    }
-
-    /**
-     * @notice Reissue shares from one wallet to another.
-     * @dev This function allows the maintainer to reissue shares from one wallet to another.
-     * @param _oldWallet The address of the old wallet.
-     * @param _newWallet The address of the new wallet.
-     * @param _amount The amount of shares to reissue.
-     */
-    function reIssue(
-        address _oldWallet,
-        address _newWallet,
-        uint256 _amount
-    ) external onlyMaintainer {
-        if (address(0) == _oldWallet || address(0) == _newWallet)
-            revert TBillZeroAddress();
-        if (_amount == 0) revert TBillInvalidInput(_amount);
-        if (balanceOf(_oldWallet) < _amount) revert TBillInvalidInput(_amount);
-
-        _validateKyc(_oldWallet, _newWallet);
-        _burn(_oldWallet, _amount);
-        _mint(_newWallet, _amount);
-        emit ReIssue(_oldWallet, _newWallet, _amount);
+    function setBuidlTreasury(address _buidlTreasury) external onlyMaintainer {
+        if (_buidlTreasury == address(0)) revert TBillZeroAddress();
+        buidlTreasury = _buidlTreasury;
+        emit SetBuidlTreasury(_buidlTreasury);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -806,13 +756,6 @@ contract OpenEdenVaultV4 is
 
         uint256 trimmedAssets = _assets - totalFee;
         uint256 shares = _convertToShares(trimmedAssets);
-
-        if (totalSupply() + shares > totalSupplyCap)
-            revert TotalSupplyCapExceeded(
-                totalSupply(),
-                shares,
-                totalSupplyCap
-            );
 
         _deposit(_sender, _receiver, trimmedAssets, shares, treasury);
         emit ProcessDeposit(
@@ -862,18 +805,34 @@ contract OpenEdenVaultV4 is
         address _sender,
         address _receiver,
         uint256 _shares,
-        uint256 _assets, // USDC
+        uint256 _assets,
         uint256 _totalFee
     ) internal returns (uint256) {
         // 1. transfer shares from sender to vault
         _transfer(_sender, address(this), _shares);
-        uint256 usdcReceived = redemptionContract.redeem(_assets);
-
-        if (usdcReceived < _assets)
-            revert TBillReceiveUSDCFailed(usdcReceived, _assets);
-
         uint256 _assetsToUser = _assets - _totalFee;
-        // 4. transfer assets to receiver
+
+        // 2. transfer BUIDL from buidlTreasury to vault, 1 BUIDL = 1 USDC, and both with 6 decimals
+        SafeERC20Upgradeable.safeTransferFrom(
+            buidl,
+            buidlTreasury,
+            address(this),
+            _assets
+        );
+
+        // 3. redeem BUIDL to USDC
+        SafeERC20Upgradeable.safeApprove(
+            buidl,
+            address(buidlRedemption),
+            _assets
+        );
+
+        uint256 before = onchainAssets();
+        buidlRedemption.redeem(_assets);
+        if (before + _assets != onchainAssets())
+            revert TBillReceiveUSDCFailed(before, _assets);
+
+        // 4. transfer USDC to receiver
         _withdraw(
             address(this),
             _receiver,
