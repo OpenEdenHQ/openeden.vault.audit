@@ -343,9 +343,7 @@ describe("OpenEdenV4", async function () {
       await usdcTokenIns.transfer(usycHelperIns.address, _200k);
 
       // Set the redemption contract in the vault
-      await vault
-        .connect(maintainer)
-        .setRedemption(usycRedemptionIns.address);
+      await vault.connect(maintainer).setRedemption(usycRedemptionIns.address);
 
       console.log("USYC redemption system set up successfully");
     } catch (error) {
@@ -986,16 +984,12 @@ describe("OpenEdenV4", async function () {
       let fee = totalFee;
       console.log("txsFee", oeFee.toString(), pFee.toString(), fee.toString());
 
-      expect(await vault.balanceOf(investor1.address)).to.equal(
-        _100k.sub(fee)
-      );
+      expect(await vault.balanceOf(investor1.address)).to.equal(_100k.sub(fee));
       expect(await vault.totalAssets()).to.equal(_100k.sub(fee));
       expect(await vault.firstDepositMap(investor1.address)).to.equal(true);
 
       await vault.connect(investor1).deposit(_100k, investor2.address);
-      expect(await vault.balanceOf(investor2.address)).to.equal(
-        _100k.sub(fee)
-      );
+      expect(await vault.balanceOf(investor2.address)).to.equal(_100k.sub(fee));
     });
 
     it("redeem 10k, redeem 100k", async function () {
